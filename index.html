@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0c1218" />
   <title>Flying Metal Tower Defense</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -11,46 +14,71 @@
     <header id="top-bar">
       <div class="brand">
         <span class="brand-icon">◈</span>
-        <span class="brand-name">FLYING METAL TOWER DEFENSE</span>
+        <span class="brand-name">FLYING METAL</span>
       </div>
-      <div class="stat" title="Credits">
-        <span class="stat-label">CREDITS</span>
-        <span id="credits-display" class="stat-value gold">650</span>
-      </div>
-      <div class="stat" title="Base Integrity">
-        <span class="stat-label">INTEGRITY</span>
-        <div class="integrity-wrap">
-          <div id="integrity-bar" class="integrity-bar"></div>
-          <span id="integrity-display" class="stat-value">100</span>
+      <div class="stat-row-compact">
+        <div class="stat" title="Credits">
+          <span class="stat-label">¤</span>
+          <span id="credits-display" class="stat-value gold">550</span>
+        </div>
+        <div class="stat" title="Base Integrity">
+          <span class="stat-label">HP</span>
+          <div class="integrity-wrap">
+            <div id="integrity-bar" class="integrity-bar"></div>
+            <span id="integrity-display" class="stat-value">100</span>
+          </div>
+        </div>
+        <div class="stat" title="Current Wave">
+          <span class="stat-label">W</span>
+          <span id="wave-display" class="stat-value">0/50</span>
+        </div>
+        <div class="stat stat-score" title="Score">
+          <span class="stat-label">SC</span>
+          <span id="score-display" class="stat-value">0</span>
         </div>
       </div>
-      <div class="stat" title="Current Wave">
-        <span class="stat-label">WAVE</span>
-        <span id="wave-display" class="stat-value">0 / 50</span>
-      </div>
-      <div class="stat" title="Score">
-        <span class="stat-label">SCORE</span>
-        <span id="score-display" class="stat-value">0</span>
-      </div>
       <div class="controls">
-        <button id="btn-speed" class="ctrl-btn" title="Speed (S)">1×</button>
-        <button id="btn-pause" class="ctrl-btn" title="Pause (Space)">❚❚</button>
-        <button id="btn-mute" class="ctrl-btn" title="Mute (M)">🔊</button>
+        <button id="btn-speed" class="ctrl-btn" title="Speed" type="button">1×</button>
+        <button id="btn-pause" class="ctrl-btn" title="Pause" type="button">❚❚</button>
+        <button id="btn-mute" class="ctrl-btn" title="Mute" type="button">🔊</button>
+        <button id="btn-sheet" class="ctrl-btn mobile-only" title="Intel" type="button">☰</button>
       </div>
     </header>
 
     <main id="main">
       <aside id="tower-panel">
-        <h2>ARSENAL</h2>
+        <div class="panel-header">
+          <h2>ARSENAL</h2>
+          <span class="panel-sub desktop-only">Tap a tower, then place on the map</span>
+        </div>
         <div id="tower-buttons"></div>
-        <div class="panel-hint">
+        <div class="panel-hint desktop-only">
           <p><kbd>1</kbd>–<kbd>9</kbd> <kbd>0</kbd> select · <kbd>Esc</kbd> cancel</p>
-          <p><kbd>Space</kbd> wave / pause · <kbd>S</kbd> speed · <kbd>R</kbd> ranges</p>
+          <p><kbd>Space</kbd> wave / pause · <kbd>S</kbd> speed</p>
         </div>
       </aside>
 
       <div id="canvas-wrap">
         <canvas id="game-canvas"></canvas>
+
+        <!-- Placement confirm bar (shown while siting a tower) -->
+        <div id="place-bar" class="hidden" aria-live="polite">
+          <div id="place-bar-info">
+            <span id="place-bar-icon">◈</span>
+            <div>
+              <div id="place-bar-name">Tower</div>
+              <div id="place-bar-hint" class="muted">Tap map to choose location</div>
+            </div>
+          </div>
+          <div class="place-bar-actions">
+            <button id="btn-place-cancel" class="secondary-btn" type="button">Cancel</button>
+            <button id="btn-place-confirm" class="primary-btn" type="button" disabled>Deploy</button>
+          </div>
+        </div>
+
+        <!-- Floating wave button (always visible when ready) -->
+        <button id="btn-start-wave-float" class="float-wave-btn hidden" type="button">▶ START WAVE</button>
+
         <div id="overlay" class="hidden">
           <div id="overlay-content"></div>
         </div>
@@ -58,20 +86,26 @@
       </div>
 
       <aside id="info-panel">
-        <h2>INTEL</h2>
+        <div class="panel-header info-header">
+          <h2>INTEL</h2>
+          <button id="btn-close-sheet" class="ctrl-btn mobile-only" type="button" aria-label="Close">✕</button>
+        </div>
         <div id="info-content">
-          <p class="muted">Select a tower on the map or from the arsenal to view details.</p>
+          <p class="muted">Select a tower from the arsenal for a full breakdown, or tap one on the map to upgrade.</p>
         </div>
         <div id="wave-info">
           <h3>NEXT WAVE</h3>
-          <div id="wave-composition" class="muted">Press Start Wave to begin.</div>
-          <button id="btn-start-wave" class="primary-btn">START WAVE</button>
+          <div id="wave-composition" class="muted">Press Start Wave when ready.</div>
+          <button id="btn-start-wave" class="primary-btn" type="button">START WAVE</button>
         </div>
       </aside>
     </main>
 
+    <!-- Mobile bottom sheet backdrop -->
+    <div id="sheet-backdrop" class="hidden"></div>
+
     <footer id="status-bar">
-      <span id="status-text">Place towers along the path. Defend the base at all costs.</span>
+      <span id="status-text">Defend the core. Build a balanced arsenal.</span>
       <span id="high-score">Best Wave: —</span>
     </footer>
   </div>

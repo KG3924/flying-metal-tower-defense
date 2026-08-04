@@ -538,7 +538,7 @@ const TOWER_TYPES = {
     pierce: 1,
     color: "#6bdf8a",
     icon: "▣",
-    desc: "Rapid kinetic. Weak vs armor/shields.",
+    desc: "Fast kinetic. Weak vs shields.",
     targeting: "first",
     behavior: "standard",
     upgrades: {
@@ -943,14 +943,86 @@ const TOWER_TYPES = {
 
 const TOWER_ORDER = [
   "pulse", "plasma", "missile", "rail", "aa",
-  "mortar", "force", "teleport", "rover", "hive",
-  // mech on key — use "mech" as 11th via click only, add to order
+  "mortar", "force", "teleport", "rover", "hive", "mech",
 ];
-// Include mech as 11th (no hotkey digit, click only) — add 0 for hive was 10; remap:
-// 1 pulse 2 plasma 3 missile 4 rail 5 aa 6 mortar 7 force 8 teleport 9 rover 0 hive — mech click only
-// Better: put mech as last and use keys 1-9, 0 for 10th, and allow click for all including 11th.
 
-TOWER_ORDER.push("mech");
+/** Longer help text for arsenal / intel panel */
+const TOWER_HELP = {
+  pulse: {
+    blurb: "Cheap rapid-fire gun. Best early swarm clearer. Damage type is kinetic — great on bare HP, poor against energy shields and heavy armor.",
+    goodVs: "Grunts · Scout bots · unarmored packs",
+    weakVs: "Shields · Siege walkers · aircraft",
+    placeTip: "Line several along tight path bends.",
+  },
+  plasma: {
+    blurb: "Energy weapon that melts shields first, then HP. Hits air and ground. Your answer when the wave intel shows SHD tags.",
+    goodVs: "Shield troops · Bearers · mixed armor",
+    weakVs: "Very high armor without upgrades",
+    placeTip: "Cover mid-path where shield units bunch up.",
+  },
+  missile: {
+    blurb: "Slow, hard-hitting explosives with splash. Built to crack walkers, carriers, and bot clusters. Does not hit aircraft.",
+    goodVs: "Walkers · Carriers · bot groups",
+    weakVs: "Air · fast single runners",
+    placeTip: "Place where path loops so splash hits multiple.",
+  },
+  rail: {
+    blurb: "Long-range sniper. Huge single-target damage, hits air, and partially pierces shields. Ideal for elites and bosses.",
+    goodVs: "Elites · bosses · gunships",
+    weakVs: "Dense swarms (too slow alone)",
+    placeTip: "Park in a corner with long sightlines.",
+  },
+  aa: {
+    blurb: "Point defense — only fires at flying units. Without AA (or other air-capable towers), drone waves will leak hard.",
+    goodVs: "Swarm drones · Gunships · Motherships",
+    weakVs: "Everything on the ground (ignored)",
+    placeTip: "Cover the whole lane; air can appear early (wave 5).",
+  },
+  mortar: {
+    blurb: "Lobs shells in an arc for large area damage. Slow fire rate, excellent for packed ground groups on chokepoints.",
+    goodVs: "Clumped infantry · bots on curves",
+    weakVs: "Air · spread-out fast units",
+    placeTip: "Aim range to cover a U-turn or bottleneck.",
+  },
+  force: {
+    blurb: "Always-on field: slows enemies and drains shields inside the circle. Heavy units resist. Great support, not a solo DPS.",
+    goodVs: "Shield packs · speeding swarms",
+    weakVs: "Colossus / high field-resist heavies",
+    placeTip: "Stack with plasma or missiles on the same bend.",
+  },
+  teleport: {
+    blurb: "Utility structure. Each pulse sends the furthest enemy in range BACK along the path, buying time. Bosses and some specials are immune.",
+    goodVs: "Stalling mid-tier units · emergency leaks",
+    weakVs: "TP-IMM tags · over-reliance without DPS",
+    placeTip: "Near the core as a last-line delay tool.",
+  },
+  rover: {
+    blurb: "Mobile platform. Place beside the lane (not on it); it patrols automatically and shoots while moving. Covers long stretches.",
+    goodVs: "Flexible coverage · mixed early threats",
+    weakVs: "Needs upgrades for serious armor/air",
+    placeTip: "Tap near the path edge — it snaps to a patrol rail.",
+  },
+  hive: {
+    blurb: "Spawns attack drones that chase targets. Soft air coverage and extra DPS. Drones expire after a few seconds.",
+    goodVs: "Air support · chasing stragglers",
+    weakVs: "High-HP singles without upgrades",
+    placeTip: "Central map so drones reach more of the path.",
+  },
+  mech: {
+    blurb: "Deploys combat mechs onto the lane. Mechs walk the path and fight ground units in melee range. Temporary but tanky.",
+    goodVs: "Ground pressure · soaking path space",
+    weakVs: "Air (mechs can't hit flying)",
+    placeTip: "Near busy path segments to intercept walkers.",
+  },
+};
+
+function isCoarsePointer() {
+  try {
+    return window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 820;
+  } catch (_) {
+    return window.innerWidth <= 820;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  WAVES — harder early curve; mixed compositions force counters
@@ -1273,6 +1345,9 @@ class Game {
     this.selectedTowerType = null;
     this.selectedTower = null;
     this.hoverPos = { x: 0, y: 0 };
+    /** Ghost placement awaiting confirm: { x, y, valid } or null */
+    this.pendingPlace = null;
+    this._touchPlacing = false;
 
     this.lastTime = 0;
     this.accum = 0;
@@ -1316,26 +1391,76 @@ class Game {
 
   _bindUI() {
     const c = this.canvas;
+
     c.addEventListener("mousemove", (e) => {
       this.hoverPos = this._canvasToLogical(e.clientX, e.clientY);
+      if (this.selectedTowerType && !this.pendingPlace) {
+        // free-move ghost only before first pin (desktop hover)
+      }
     });
+
     c.addEventListener("click", (e) => {
       AudioFX.resume();
       const p = this._canvasToLogical(e.clientX, e.clientY);
       this._onCanvasClick(p.x, p.y);
     });
+
+    // Touch: drag to reposition pending site
+    c.addEventListener("touchstart", (e) => {
+      if (!this.selectedTowerType || e.touches.length !== 1) return;
+      AudioFX.resume();
+      const t = e.touches[0];
+      const p = this._canvasToLogical(t.clientX, t.clientY);
+      this._touchPlacing = true;
+      this._setPendingPlace(p.x, p.y);
+      e.preventDefault();
+    }, { passive: false });
+
+    c.addEventListener("touchmove", (e) => {
+      if (!this._touchPlacing || !this.selectedTowerType || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const p = this._canvasToLogical(t.clientX, t.clientY);
+      this.hoverPos = p;
+      this._setPendingPlace(p.x, p.y);
+      e.preventDefault();
+    }, { passive: false });
+
+    c.addEventListener("touchend", (e) => {
+      this._touchPlacing = false;
+      if (this.selectedTowerType) e.preventDefault();
+    }, { passive: false });
+
     c.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       this._deselect();
     });
-    document.getElementById("btn-start-wave").addEventListener("click", () => {
+
+    const startWave = () => {
       AudioFX.resume();
       this.startWave();
-    });
+    };
+    document.getElementById("btn-start-wave").addEventListener("click", startWave);
+    document.getElementById("btn-start-wave-float").addEventListener("click", startWave);
+
     document.getElementById("btn-pause").addEventListener("click", () => this.togglePause());
     document.getElementById("btn-speed").addEventListener("click", () => this.cycleSpeed());
     document.getElementById("btn-mute").addEventListener("click", () => this.toggleMute());
+
+    document.getElementById("btn-place-cancel").addEventListener("click", () => {
+      AudioFX.ui();
+      this._deselect();
+    });
+    document.getElementById("btn-place-confirm").addEventListener("click", () => {
+      AudioFX.resume();
+      this._confirmPlacement();
+    });
+
+    document.getElementById("btn-sheet").addEventListener("click", () => this._openSheet());
+    document.getElementById("btn-close-sheet").addEventListener("click", () => this._closeSheet());
+    document.getElementById("sheet-backdrop").addEventListener("click", () => this._closeSheet());
+
     window.addEventListener("keydown", (e) => this._onKey(e));
+    window.addEventListener("resize", () => this._syncPlaceBar());
   }
 
   _buildTowerButtons() {
@@ -1343,14 +1468,16 @@ class Game {
     host.innerHTML = "";
     TOWER_ORDER.forEach((id, i) => {
       const def = TOWER_TYPES[id];
-      const key = i < 9 ? String(i + 1) : i === 9 ? "0" : "·";
+      const key = i < 9 ? String(i + 1) : i === 9 ? "0" : "";
       const btn = document.createElement("button");
       btn.className = "tower-btn";
+      btn.type = "button";
       btn.dataset.tower = id;
+      btn.title = `${def.name}: ${def.desc}`;
       btn.innerHTML = `
         <div class="icon" style="color:${def.color}">${def.icon}</div>
         <div class="meta">
-          <div class="name">${key}. ${def.short}</div>
+          <div class="name">${key ? key + ". " : ""}${def.short}</div>
           <div class="cost">¤ ${def.cost}</div>
           <div class="desc">${def.desc}</div>
         </div>`;
@@ -1360,6 +1487,93 @@ class Game {
       });
       host.appendChild(btn);
     });
+  }
+
+  _openSheet() {
+    document.getElementById("info-panel").classList.add("open");
+    document.getElementById("sheet-backdrop").classList.remove("hidden");
+  }
+
+  _closeSheet() {
+    document.getElementById("info-panel").classList.remove("open");
+    document.getElementById("sheet-backdrop").classList.add("hidden");
+  }
+
+  _setPendingPlace(x, y) {
+    if (!this.selectedTowerType) return;
+    let px = x, py = y;
+    const def = TOWER_TYPES[this.selectedTowerType];
+    if (def.behavior === "rover") {
+      const n = nearestPathDist(x, y);
+      const p = pathPointAt(n.dist);
+      const nx = -Math.sin(p.angle);
+      const ny = Math.cos(p.angle);
+      const side = Math.sign((x - p.x) * nx + (y - p.y) * ny) || 1;
+      const off = pathPointOffset(n.dist, side * CONFIG.roverPathOffset);
+      px = off.x;
+      py = off.y;
+    }
+    const valid = isValidPlacement(x, y, this.towers, this.selectedTowerType);
+    this.pendingPlace = { x: px, y: py, rawX: x, rawY: y, valid };
+    this.hoverPos = { x: px, y: py };
+    this._syncPlaceBar();
+  }
+
+  _confirmPlacement() {
+    if (!this.selectedTowerType || !this.pendingPlace || !this.pendingPlace.valid) {
+      this._setStatus("Pick a valid green spot on the map first.");
+      return;
+    }
+    const type = this.selectedTowerType;
+    const { rawX, rawY, x, y } = this.pendingPlace;
+    // Use raw click for rover side choice; final coords for others
+    const def = TOWER_TYPES[type];
+    if (def.behavior === "rover") this._placeTower(type, rawX, rawY);
+    else this._placeTower(type, x, y);
+  }
+
+  _syncPlaceBar() {
+    const bar = document.getElementById("place-bar");
+    const confirm = document.getElementById("btn-place-confirm");
+    if (!this.selectedTowerType) {
+      bar.classList.add("hidden");
+      return;
+    }
+    const def = TOWER_TYPES[this.selectedTowerType];
+    bar.classList.remove("hidden");
+    document.getElementById("place-bar-icon").textContent = def.icon;
+    document.getElementById("place-bar-icon").style.color = def.color;
+    document.getElementById("place-bar-name").textContent = `${def.name} · ¤${def.cost}`;
+
+    if (!this.pendingPlace) {
+      bar.classList.remove("invalid");
+      document.getElementById("place-bar-hint").textContent =
+        def.behavior === "rover"
+          ? "Tap beside the glowing lane to set patrol start"
+          : "Tap the map to set location, then Deploy";
+      confirm.disabled = true;
+      confirm.textContent = "Deploy";
+    } else if (this.pendingPlace.valid) {
+      bar.classList.remove("invalid");
+      document.getElementById("place-bar-hint").textContent = "Location OK — press Deploy (or tap elsewhere to move)";
+      confirm.disabled = false;
+      confirm.textContent = "✓ Deploy";
+    } else {
+      bar.classList.add("invalid");
+      document.getElementById("place-bar-hint").textContent = "Invalid — off path grass only (not on lane / other towers)";
+      confirm.disabled = true;
+      confirm.textContent = "Deploy";
+    }
+  }
+
+  _syncWaveFloat() {
+    const floatBtn = document.getElementById("btn-start-wave-float");
+    const ready =
+      this.state === STATE.INTERMISSION &&
+      !this.waveActive &&
+      this.waveIndex < this.waves.length;
+    floatBtn.classList.toggle("hidden", !ready);
+    document.getElementById("btn-start-wave").disabled = !ready;
   }
 
   // ── Input ──────────────────────────────────────────────────────────────
@@ -1378,6 +1592,11 @@ class Game {
     if (key === "m") return this.toggleMute();
     if (key === "r") { this.showAllRanges = !this.showAllRanges; return; }
     if (key === "escape") return this._deselect();
+    if (key === "enter" && this.selectedTowerType) {
+      e.preventDefault();
+      this._confirmPlacement();
+      return;
+    }
 
     if (key === "0") {
       this.selectTowerType(TOWER_ORDER[9]);
@@ -1390,15 +1609,21 @@ class Game {
   _onCanvasClick(x, y) {
     if (this.state === STATE.MENU || this.state === STATE.GAME_OVER || this.state === STATE.VICTORY) return;
 
+    // Placement mode: pin ghost (confirm separately)
     if (this.selectedTowerType) {
-      if (isValidPlacement(x, y, this.towers, this.selectedTowerType)) {
-        this._placeTower(this.selectedTowerType, x, y);
+      this._setPendingPlace(x, y);
+      if (this.pendingPlace && this.pendingPlace.valid) {
+        this._setStatus("Location set. Press Deploy to build (or tap again to move).");
+      } else {
+        this._setStatus("Can't build there — stay off the lane and clear of other towers.");
       }
       return;
     }
 
+    // Select existing tower (larger hit area on touch)
+    const hitR = isCoarsePointer() ? 36 : 26;
     let nearest = null;
-    let nearestD = 26;
+    let nearestD = hitR;
     for (const t of this.towers) {
       const d = Math.hypot(x - t.x, y - t.y);
       if (d < nearestD) {
@@ -1408,35 +1633,40 @@ class Game {
     }
     this.selectedTower = nearest;
     this._refreshInfoPanel();
+    if (nearest && isCoarsePointer()) this._openSheet();
   }
 
   selectTowerType(id) {
     if (this.state === STATE.MENU || this.state === STATE.GAME_OVER || this.state === STATE.VICTORY) return;
     const def = TOWER_TYPES[id];
     if (!def) return;
-    if (this.selectedTowerType === id) {
+    if (this.selectedTowerType === id && !this.pendingPlace) {
       this._deselect();
       return;
     }
     this.selectedTowerType = id;
     this.selectedTower = null;
+    this.pendingPlace = null;
     AudioFX.ui();
     document.querySelectorAll(".tower-btn").forEach((b) => {
       b.classList.toggle("selected", b.dataset.tower === id);
     });
     this._refreshInfoPanel();
-    const hint =
-      def.behavior === "rover"
-        ? "Place NEAR the lane (not on it). Platform will patrol."
-        : "Click valid terrain to deploy.";
-    this._setStatus(`Placing ${def.name} (¤${def.cost}). ${hint} Esc cancel.`);
+    this._syncPlaceBar();
+    if (isCoarsePointer()) this._openSheet();
+    const help = TOWER_HELP[id];
+    this._setStatus(
+      `${def.name} selected (¤${def.cost}). ${help ? help.placeTip : "Tap map, then Deploy."}`
+    );
   }
 
   _deselect() {
     this.selectedTowerType = null;
     this.selectedTower = null;
+    this.pendingPlace = null;
     document.querySelectorAll(".tower-btn").forEach((b) => b.classList.remove("selected"));
     this._refreshInfoPanel();
+    this._syncPlaceBar();
     this.canvas.style.cursor = "crosshair";
   }
 
@@ -1533,12 +1763,15 @@ class Game {
     this.towers.push(tower);
     this.selectedTower = tower;
     this.selectedTowerType = null;
+    this.pendingPlace = null;
     document.querySelectorAll(".tower-btn").forEach((b) => b.classList.remove("selected"));
     AudioFX.place();
     this._spawnParticles(px, py, def.color, 10, 1.5);
     this._refreshInfoPanel();
+    this._syncPlaceBar();
     this._updateHUD();
-    this._setStatus(`${def.name} online.`);
+    this._setStatus(`${def.name} online. Tap it to upgrade.`);
+    if (isCoarsePointer()) this._openSheet();
   }
 
   _upgradeTower(tower, path) {
@@ -1917,6 +2150,7 @@ class Game {
     this._updateHUD();
     this._updateWaveInfo();
     document.getElementById("btn-start-wave").disabled = true;
+    this._syncWaveFloat();
     this._hideOverlay();
   }
 
@@ -1949,9 +2183,10 @@ class Game {
 
     this.state = STATE.INTERMISSION;
     document.getElementById("btn-start-wave").disabled = false;
-    this._setStatus(`Wave ${completed} cleared. Re-arm. Counters matter — check next intel.`);
+    this._setStatus(`Wave ${completed} cleared. Re-arm. Check next wave tags.`);
     this._updateHUD();
     this._updateWaveInfo();
+    this._syncWaveFloat();
     if (this.selectedTower) this._refreshInfoPanel();
   }
 
@@ -1981,16 +2216,14 @@ class Game {
     const el = document.getElementById("overlay-content");
     el.innerHTML = `
       <h2>TACTICAL BRIEF</h2>
-      <p style="text-align:left;font-size:0.85rem">
-        <strong>Shields</strong> block kinetic fire — bring <span style="color:#44ddff">Plasma</span>.<br/>
-        <strong>Drones / gunships</strong> need <span style="color:#a0b0c8">AA</span> early (wave 5).<br/>
-        <strong>Force Fields</strong> slow packs & drain shields; heavies resist.<br/>
-        <strong>Teleporters</strong> shove units back — walkers & bosses ignore them.<br/>
-        <strong>Rovers</strong> place beside the lane; they patrol automatically.<br/>
-        <strong>Hives / Mech Bays</strong> deploy mobile units. Specialize upgrades.
+      <p style="text-align:left;font-size:0.84rem">
+        <strong>1. Build</strong> — Pick a tower from the arsenal strip. Tap the map to pin a green spot, then press <strong>Deploy</strong>.<br/><br/>
+        <strong>2. Counters</strong> — Cyan HP bars are <em>shields</em> (use Plasma). Flying units need AA. Wave list shows AIR / SHD tags.<br/><br/>
+        <strong>3. Upgrade</strong> — Tap a built tower (or ☰ Intel) for paths A/B/C.<br/><br/>
+        <strong>4. Specials</strong> — Force Field slows; Teleport delays; Rover patrols the lane; Hive/Mech spawn helpers.
       </p>
       <div class="btn-row">
-        <button class="primary-btn" id="btn-tut-ok" style="width:auto;min-width:160px">ACKNOWLEDGE</button>
+        <button class="primary-btn" id="btn-tut-ok" type="button" style="width:auto;min-width:160px">GOT IT</button>
       </div>`;
     document.getElementById("overlay").classList.remove("hidden");
     document.getElementById("btn-tut-ok").onclick = () => {
@@ -2019,6 +2252,7 @@ class Game {
     this.selectedTower = null;
     this.selectedTowerType = null;
     this.state = STATE.INTERMISSION;
+    this.pendingPlace = null;
     document.getElementById("btn-speed").textContent = "1×";
     document.getElementById("btn-start-wave").disabled = false;
     document.querySelectorAll(".tower-btn").forEach((b) => b.classList.remove("selected"));
@@ -2026,11 +2260,18 @@ class Game {
     this._updateHUD();
     this._updateWaveInfo();
     this._refreshInfoPanel();
-    this._setStatus("Build a balanced line. Wave 3 has shields. Wave 5 has air.");
+    this._syncPlaceBar();
+    this._syncWaveFloat();
+    this._setStatus("Pick towers → pin on map → Deploy. Wave 3 shields · Wave 5 air.");
   }
 
   _gameOver() {
     this.state = STATE.GAME_OVER;
+    this.selectedTowerType = null;
+    this.pendingPlace = null;
+    this._syncPlaceBar();
+    this._syncWaveFloat();
+    this._closeSheet();
     if (this.waveIndex > this.highWave) {
       this.highWave = this.waveIndex;
       localStorage.setItem("fmtd_highWave", String(this.highWave));
@@ -2055,6 +2296,11 @@ class Game {
 
   _victory() {
     this.state = STATE.VICTORY;
+    this.selectedTowerType = null;
+    this.pendingPlace = null;
+    this._syncPlaceBar();
+    this._syncWaveFloat();
+    this._closeSheet();
     this.score += 8000;
     if (this.score > this.highScore) {
       this.highScore = this.score;
@@ -2123,6 +2369,7 @@ class Game {
       const def = TOWER_TYPES[b.dataset.tower];
       b.disabled = this.credits < def.cost && this.selectedTowerType !== def.id;
     });
+    this._syncWaveFloat();
   }
 
   _updateWaveInfo() {
@@ -2147,6 +2394,29 @@ class Game {
     el.innerHTML = `<div style="margin-bottom:0.25rem;color:var(--tan)">Wave ${wave.number}</div>${lines.join("")}`;
   }
 
+  _towerHelpHtml(def) {
+    const help = TOWER_HELP[def.id] || {};
+    const tags = [];
+    if (def.airOnly) tags.push(`<span class="tag air">AIR ONLY</span>`);
+    else if (def.canHitFlying) tags.push(`<span class="tag air">HITS AIR</span>`);
+    else tags.push(`<span class="tag">GROUND ONLY</span>`);
+    if (def.behavior === "force") tags.push(`<span class="tag special">AURA</span>`);
+    if (def.behavior === "teleport") tags.push(`<span class="tag special">UTILITY</span>`);
+    if (def.behavior === "rover") tags.push(`<span class="tag special">MOBILE</span>`);
+    if (def.behavior === "hive" || def.behavior === "mech") tags.push(`<span class="tag special">SPAWNS UNITS</span>`);
+    if (def.dmgType === DMG.PLASMA) tags.push(`<span class="tag good">ANTI-SHIELD</span>`);
+    if (def.dmgType === DMG.EXPLOSIVE) tags.push(`<span class="tag good">ANTI-ARMOR</span>`);
+    if (def.dmgType === DMG.KINETIC) tags.push(`<span class="tag bad">WEAK VS SHIELDS</span>`);
+
+    return `
+      <div class="tag-row">${tags.join("")}</div>
+      <div class="how-it-works">${help.blurb || def.desc}</div>
+      ${help.goodVs ? `<div class="stat-row"><span class="label">Strong vs</span><span style="color:#6bdf8a;text-align:right;font-size:0.72rem">${help.goodVs}</span></div>` : ""}
+      ${help.weakVs ? `<div class="stat-row"><span class="label">Weak vs</span><span style="color:#ff8899;text-align:right;font-size:0.72rem">${help.weakVs}</span></div>` : ""}
+      ${help.placeTip ? `<p class="muted" style="margin-top:0.45rem;font-size:0.72rem">📍 ${help.placeTip}</p>` : ""}
+    `;
+  }
+
   _refreshInfoPanel() {
     const el = document.getElementById("info-content");
 
@@ -2154,14 +2424,16 @@ class Game {
       const def = TOWER_TYPES[this.selectedTowerType];
       el.innerHTML = `
         <div class="tower-title" style="color:${def.color}">${def.icon} ${def.name}</div>
-        <p class="muted" style="margin-bottom:0.5rem">${def.desc}</p>
         <div class="stat-row"><span class="label">Cost</span><span>¤ ${def.cost}</span></div>
-        <div class="stat-row"><span class="label">Role</span><span>${def.behavior}</span></div>
-        ${def.fireRate ? `<div class="stat-row"><span class="label">Rate</span><span>${def.fireRate}/s</span></div>` : ""}
+        <div class="stat-row"><span class="label">Damage type</span><span>${def.dmgType}</span></div>
+        ${def.fireRate ? `<div class="stat-row"><span class="label">Fire rate</span><span>${def.fireRate}/s</span></div>` : `<div class="stat-row"><span class="label">Mode</span><span>${def.behavior}</span></div>`}
         ${def.damage ? `<div class="stat-row"><span class="label">Damage</span><span>${def.damage}</span></div>` : ""}
         <div class="stat-row"><span class="label">Range</span><span>${def.range}</span></div>
-        <div class="stat-row"><span class="label">Type</span><span>${def.dmgType}${def.airOnly ? " (air)" : ""}</span></div>
-        <p class="muted" style="margin-top:0.5rem;font-size:0.72rem">3 upgrade paths (A/B/C). Specialize wisely.</p>`;
+        ${this._towerHelpHtml(def)}
+        <p class="muted" style="margin-top:0.55rem;font-size:0.72rem">
+          <strong>How to place:</strong> Tap the map to pin a spot (green = OK), then press <strong>Deploy</strong>.
+          After building, open Intel (☰) and upgrade paths A/B/C.
+        </p>`;
       return;
     }
 
@@ -2179,7 +2451,7 @@ class Game {
           </div>`;
         } else {
           const up = pathUps[level];
-          ups += `<button class="upgrade-btn" data-path="${path}" ${this.credits >= up.cost ? "" : "disabled"}>
+          ups += `<button class="upgrade-btn" type="button" data-path="${path}" ${this.credits >= up.cost ? "" : "disabled"}>
             <div><span class="up-name">Path ${path}: ${up.name}</span>
             <span class="up-cost"> ¤${up.cost}</span></div>
             <div class="up-desc">${up.desc} <em>(${level}/3)</em></div>
@@ -2189,13 +2461,16 @@ class Game {
       const sell = Math.floor(t.totalInvested * CONFIG.sellRefund);
       el.innerHTML = `
         <div class="tower-title" style="color:${def.color}">${def.icon} ${def.name}</div>
+        ${this._towerHelpHtml(def)}
         <div class="stat-row"><span class="label">Damage</span><span>${t.damage.toFixed(0)}</span></div>
-        <div class="stat-row"><span class="label">Rate</span><span>${t.fireRate ? t.fireRate.toFixed(2) + "/s" : "aura"}</span></div>
+        <div class="stat-row"><span class="label">Rate</span><span>${t.fireRate ? t.fireRate.toFixed(2) + "/s" : "aura / deploy"}</span></div>
         <div class="stat-row"><span class="label">Range</span><span>${t.range.toFixed(0)}</span></div>
         <div class="stat-row"><span class="label">Kills</span><span>${t.kills}</span></div>
-        <div class="stat-row"><span class="label">Paths</span><span>A${t.pathLevel.A} B${t.pathLevel.B} C${t.pathLevel.C}</span></div>
-        <div class="upgrade-section"><h3 style="font-size:0.7rem;letter-spacing:0.1em;color:var(--tan);margin-bottom:0.35rem">UPGRADES</h3>${ups}</div>
-        <button class="sell-btn" id="btn-sell">SELL (¤${sell})</button>`;
+        <div class="stat-row"><span class="label">Upgrades</span><span>A${t.pathLevel.A} B${t.pathLevel.B} C${t.pathLevel.C} (max 5)</span></div>
+        <div class="upgrade-section"><h3 style="font-size:0.7rem;letter-spacing:0.1em;color:var(--tan);margin-bottom:0.35rem">UPGRADE PATHS</h3>
+        <p class="muted" style="font-size:0.68rem;margin-bottom:0.4rem">Pick a specialty. Only one path can hit rank 3 if another is already rank 2+.</p>
+        ${ups}</div>
+        <button class="sell-btn" id="btn-sell" type="button">SELL (¤${sell})</button>`;
       el.querySelectorAll(".upgrade-btn[data-path]").forEach((btn) => {
         btn.addEventListener("click", () => this._upgradeTower(t, btn.dataset.path));
       });
@@ -2204,11 +2479,16 @@ class Game {
       return;
     }
 
-    el.innerHTML = `<p class="muted">Select a structure for intel & upgrades.<br/><br/>
-      <span style="color:#44ddff">Plasma</span> → shields ·
-      <span style="color:#ff6644">Missile</span> → armor ·
-      <span style="color:#a0b0c8">AA</span> → air ·
-      <span style="color:#c080ff">Teleport</span> → stalls (not bosses)</p>`;
+    el.innerHTML = `<p class="muted" style="margin-bottom:0.6rem">Select a tower in the arsenal for a full breakdown, or tap one on the map to upgrade / sell.</p>
+      <div class="how-it-works">
+        <strong>Quick counters</strong><br/>
+        <span style="color:#44ddff">Plasma</span> melts shields ·
+        <span style="color:#ff6644">Missiles</span> crack armor ·
+        <span style="color:#a0b0c8">AA</span> stops drones ·
+        <span style="color:#66ffcc">Force Field</span> slows packs ·
+        <span style="color:#c080ff">Teleport</span> stalls (not bosses)
+      </div>
+      <p class="muted" style="margin-top:0.55rem;font-size:0.72rem">Wave tags: AIR · SHD (shield) · TP-IMM · STL (stealth)</p>`;
   }
 
   _setStatus(msg) {
@@ -2833,30 +3113,55 @@ class Game {
 
   _drawPlacementPreview(ctx) {
     const def = TOWER_TYPES[this.selectedTowerType];
-    let { x, y } = this.hoverPos;
-    const valid = isValidPlacement(x, y, this.towers, this.selectedTowerType);
-    if (def.behavior === "rover" && valid) {
-      const n = nearestPathDist(x, y);
-      const p = pathPointAt(n.dist);
-      const nx = -Math.sin(p.angle);
-      const ny = Math.cos(p.angle);
-      const side = Math.sign((x - p.x) * nx + (y - p.y) * ny) || 1;
-      const off = pathPointOffset(n.dist, side * CONFIG.roverPathOffset);
-      x = off.x;
-      y = off.y;
+    // Prefer pinned site; otherwise follow hover (desktop)
+    let x, y, valid;
+    if (this.pendingPlace) {
+      x = this.pendingPlace.x;
+      y = this.pendingPlace.y;
+      valid = this.pendingPlace.valid;
+    } else {
+      x = this.hoverPos.x;
+      y = this.hoverPos.y;
+      valid = isValidPlacement(x, y, this.towers, this.selectedTowerType);
+      if (def.behavior === "rover") {
+        const n = nearestPathDist(x, y);
+        const p = pathPointAt(n.dist);
+        const nx = -Math.sin(p.angle);
+        const ny = Math.cos(p.angle);
+        const side = Math.sign((x - p.x) * nx + (y - p.y) * ny) || 1;
+        const off = pathPointOffset(n.dist, side * CONFIG.roverPathOffset);
+        x = off.x;
+        y = off.y;
+      }
     }
+
     ctx.save();
-    ctx.globalAlpha = 0.7;
+    ctx.globalAlpha = this.pendingPlace ? 0.9 : 0.55;
     this._drawRange(ctx, x, y, def.range, true, def.color);
     ctx.strokeStyle = valid ? "#44ddff" : "#ff4466";
-    ctx.fillStyle = valid ? "rgba(68,221,255,0.25)" : "rgba(255,68,100,0.25)";
-    ctx.lineWidth = 2;
+    ctx.fillStyle = valid ? "rgba(68,221,255,0.3)" : "rgba(255,68,100,0.28)";
+    ctx.lineWidth = this.pendingPlace ? 3 : 2;
     ctx.beginPath();
-    ctx.arc(x, y, CONFIG.towerPlaceRadius, 0, Math.PI * 2);
+    ctx.arc(x, y, CONFIG.towerPlaceRadius + (this.pendingPlace ? 2 : 0), 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+
+    // Pulsing ring when pinned & valid
+    if (this.pendingPlace && valid) {
+      const pulse = 0.5 + Math.sin(this.time * 6) * 0.5;
+      ctx.strokeStyle = `rgba(68,221,255,${0.35 + pulse * 0.45})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, CONFIG.towerPlaceRadius + 10 + pulse * 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#44ddff";
+      ctx.font = "bold 11px Segoe UI, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("DEPLOY?", x, y - 28);
+    }
+
     ctx.fillStyle = "#fff";
-    ctx.font = "14px sans-serif";
+    ctx.font = "16px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(def.icon, x, y);

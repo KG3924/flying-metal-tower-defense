@@ -1,16 +1,27 @@
 # Flying Metal Tower Defense
 
-Sci-fi tower defense game (Bloons-inspired). Pure HTML5 Canvas + vanilla JavaScript — no build step, no dependencies.
+Sci-fi tower defense (Bloons-inspired). Pure HTML5 Canvas + vanilla JavaScript — no build step, no dependencies.
 
-## Play
+## Play live
 
-Open `index.html` in a modern browser, or play on GitHub Pages once enabled.
+**https://KG3924.github.io/flying-metal-tower-defense/**
+
+## Run locally
 
 ```bash
-# local
+# open index.html in a browser, or:
 python3 -m http.server 8080
 # then open http://localhost:8080
 ```
+
+Works on desktop and mobile browsers. On phones: horizontal arsenal dock, bottom Intel sheet (☰), and **pin location → Deploy** placement.
+
+## How to place towers
+
+1. Tap a tower in the arsenal.
+2. Tap the map to pin a spot (cyan = valid, red = invalid).
+3. Press **Deploy** to build (or tap again to move the pin).
+4. Tap a built tower / open **☰ Intel** to upgrade or sell.
 
 ## Arsenal (11 structures)
 
@@ -39,16 +50,15 @@ Shields (cyan bar) block kinetic fire. Wave intel tags:
 - **TP-IMM** — teleporters do nothing
 - **STL** — needs detection upgrades
 
-## Controls
+## Controls (desktop)
 
-`1–9` / `0` place · `Esc` cancel · `Space` wave/pause · `S` speed · `M` mute · `R` ranges
+`1–9` / `0` select · tap map to pin · **Enter** deploy · `Esc` cancel · `Space` wave/pause · `S` speed · `M` mute · `R` ranges
 
 ## GitHub Pages
 
-1. Repo **Settings** → **Pages**
-2. Source: **Deploy from a branch**
-3. Branch: `main` / root (`/`)
-4. Save — site will be at `https://<username>.github.io/flying-metal-tower-defense/`
+Repo: https://github.com/KG3924/flying-metal-tower-defense  
+
+Settings → Pages → Deploy from branch **`main`** / root (`/`).
 
 ## License
 
