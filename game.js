@@ -568,11 +568,12 @@ const TOWER_TYPES = {
     range: 120,
     fireRate: 1.4,
     damage: 22,
-    projectileSpeed: 320,
+    projectileSpeed: 420,
     dmgType: DMG.PLASMA,
     canHitFlying: true,
-    splash: 14,
+    splash: 18,
     pierce: 1,
+    homing: true, // energy bolts track — misses were a bug, not a feature
     color: "#44ddff",
     icon: "◈",
     desc: "Melts shields. Solid vs everything.",
@@ -1728,7 +1729,7 @@ class Game {
       burnDuration: 0,
       multiTarget: 1,
       detectStealth: false,
-      homing: false,
+      homing: !!def.homing,
       botBonus: 1,
       heavyBonus: 1,
       airBonus: 1,
@@ -2010,18 +2011,44 @@ class Game {
     return candidates.slice(0, tower.multiTarget || 1).map((c) => c.e);
   }
 
+  /**
+   * Aim at where the target will be when the shot arrives (path lead).
+   * Prevents "fake misses" from slow bolts + moving enemies.
+   */
+  _aimPoint(tower, target) {
+    const dist = Math.hypot(target.x - tower.x, target.y - tower.y);
+    const spd = Math.max(tower.projectileSpeed, 1);
+    let eta = dist / spd;
+    // Iterate lead along the path a couple times
+    let leadDist = target.dist;
+    for (let i = 0; i < 3; i++) {
+      const pos = pathPointAt(leadDist);
+      eta = Math.hypot(pos.x - tower.x, pos.y - tower.y) / spd;
+      const moveSpd = target.stunTimer > 0 ? 0 : target.baseSpeed * (1 - (target.slowAmount || 0) * (target.slowTimer > 0 ? 1 : 0));
+      const fieldSlow = target.fieldSlowNow || 0;
+      leadDist = target.dist + moveSpd * (1 - fieldSlow) * eta;
+    }
+    const aim = pathPointAt(leadDist);
+    // Flying units sit above the path
+    if (target.flying) aim.y -= 16;
+    return aim;
+  }
+
   _fireTower(tower, targets) {
     const def = TOWER_TYPES[tower.type];
+    // Prefer tower instance flags (upgrades), fall back to type def
+    const isHoming = !!(tower.homing || def.homing);
     for (const target of targets) {
       if (this.projectiles.length >= CONFIG.maxProjectiles) break;
-      const angle = Math.atan2(target.y - tower.y, target.x - tower.x);
+      const aim = this._aimPoint(tower, target);
+      const angle = Math.atan2(aim.y - tower.y, aim.x - tower.x);
       tower.angle = angle;
       this.projectiles.push({
         id: nextId(),
         x: tower.x,
         y: tower.y,
-        tx: target.x,
-        ty: target.y,
+        tx: aim.x,
+        ty: aim.y,
         targetId: target.id,
         vx: Math.cos(angle) * tower.projectileSpeed,
         vy: Math.sin(angle) * tower.projectileSpeed,
@@ -2031,18 +2058,18 @@ class Game {
         splash: tower.splash,
         pierce: tower.pierce,
         pierced: 0,
-        homing: tower.homing,
+        homing: isHoming,
         arcing: tower.arcing,
         age: 0,
         maxAge: tower.arcing ? 1.8 : 2.5,
         towerRef: tower,
         color: def.color,
-        radius: tower.arcing ? 5 : tower.dmgType === DMG.PLASMA ? 4 : tower.dmgType === DMG.EXPLOSIVE ? 4 : 2.5,
+        radius: tower.arcing ? 5 : tower.dmgType === DMG.PLASMA ? 5 : tower.dmgType === DMG.EXPLOSIVE ? 4 : 2.5,
         startX: tower.x,
         startY: tower.y,
         arcT: 0,
         arcDuration: tower.arcing
-          ? clamp(Math.hypot(target.x - tower.x, target.y - tower.y) / Math.max(tower.projectileSpeed, 1), 0.4, 1.6)
+          ? clamp(Math.hypot(aim.x - tower.x, aim.y - tower.y) / Math.max(tower.projectileSpeed, 1), 0.4, 1.6)
           : 0,
         dead: false,
       });
@@ -2844,28 +2871,36 @@ class Game {
           p.dead = true;
         }
       } else {
-        if (p.homing) {
-          const tgt = this.enemies.find((e) => e.id === p.targetId && e.alive);
-          if (tgt) {
-            const ang = Math.atan2(tgt.y - p.y, tgt.x - p.x);
-            const cur = Math.atan2(p.vy, p.vx);
-            let diff = ang - cur;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            const na = cur + clamp(diff, -9 * dt, 9 * dt);
-            p.vx = Math.cos(na) * p.speed;
-            p.vy = Math.sin(na) * p.speed;
-          }
+        const tgt = this.enemies.find((e) => e.id === p.targetId && e.alive);
+
+        if (p.homing && tgt) {
+          const ang = Math.atan2(tgt.y - p.y, tgt.x - p.x);
+          const cur = Math.atan2(p.vy, p.vx);
+          let diff = ang - cur;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          // Plasma / guided: turn hard enough to stay locked
+          const turnRate = p.dmgType === DMG.PLASMA ? 14 : 10;
+          const na = cur + clamp(diff, -turnRate * dt, turnRate * dt);
+          p.vx = Math.cos(na) * p.speed;
+          p.vy = Math.sin(na) * p.speed;
+          p.tx = tgt.x;
+          p.ty = tgt.y;
         }
+
         p.x += p.vx * dt;
         p.y += p.vy * dt;
 
+        // Hit test vs enemies
+        let hit = false;
         for (const e of this.enemies) {
           if (!e.alive) continue;
           if (e.flying && !p.towerRef.canHitFlying) continue;
           if (p.towerRef.airOnly && !e.flying) continue;
+          // Generous hit box so slow/splash shots don't "ghost" past units
+          const pad = p.splash > 0 ? 4 : 3;
           const d = Math.hypot(e.x - p.x, e.y - p.y);
-          if (d < e.radius + p.radius + 2) {
+          if (d < e.radius + p.radius + pad) {
             if (p.splash > 0) {
               this._projectileImpact(p, e);
               p.dead = true;
@@ -2874,9 +2909,41 @@ class Game {
               p.pierced++;
               if (p.pierced >= p.pierce) p.dead = true;
             }
+            hit = true;
             if (p.dead) break;
           }
         }
+
+        // Splash bolts: detonate when close to the locked target (or aim point)
+        // so they don't sail into the void if they barely miss the hitbox
+        if (!hit && !p.dead && p.splash > 0) {
+          if (tgt) {
+            const dT = Math.hypot(tgt.x - p.x, tgt.y - p.y);
+            if (dT < Math.max(p.splash, tgt.radius + p.radius + 6)) {
+              this._projectileImpact(p, tgt);
+              p.dead = true;
+              hit = true;
+            }
+          } else {
+            const dAim = Math.hypot(p.tx - p.x, p.ty - p.y);
+            if (dAim < p.splash + 8) {
+              this._projectileImpact(p);
+              p.dead = true;
+              hit = true;
+            }
+          }
+        }
+
+        // Homing: if still no hit and we overshot past target, snap-impact once very close
+        if (!hit && !p.dead && p.homing && tgt) {
+          const dT = Math.hypot(tgt.x - p.x, tgt.y - p.y);
+          if (dT < tgt.radius + p.radius + 10) {
+            if (p.splash > 0) this._projectileImpact(p, tgt);
+            else this._damageEnemy(tgt, p.damage, p.dmgType, p.towerRef);
+            p.dead = true;
+          }
+        }
+
         if (p.age > p.maxAge) p.dead = true;
         if (p.x < -60 || p.y < -60 || p.x > CONFIG.logicalW + 60 || p.y > CONFIG.logicalH + 60) p.dead = true;
       }
