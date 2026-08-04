@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Flying Metal Tower Defense</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="top-bar">
+      <div class="brand">
+        <span class="brand-icon">◈</span>
+        <span class="brand-name">FLYING METAL TOWER DEFENSE</span>
+      </div>
+      <div class="stat" title="Credits">
+        <span class="stat-label">CREDITS</span>
+        <span id="credits-display" class="stat-value gold">650</span>
+      </div>
+      <div class="stat" title="Base Integrity">
+        <span class="stat-label">INTEGRITY</span>
+        <div class="integrity-wrap">
+          <div id="integrity-bar" class="integrity-bar"></div>
+          <span id="integrity-display" class="stat-value">100</span>
+        </div>
+      </div>
+      <div class="stat" title="Current Wave">
+        <span class="stat-label">WAVE</span>
+        <span id="wave-display" class="stat-value">0 / 50</span>
+      </div>
+      <div class="stat" title="Score">
+        <span class="stat-label">SCORE</span>
+        <span id="score-display" class="stat-value">0</span>
+      </div>
+      <div class="controls">
+        <button id="btn-speed" class="ctrl-btn" title="Speed (S)">1×</button>
+        <button id="btn-pause" class="ctrl-btn" title="Pause (Space)">❚❚</button>
+        <button id="btn-mute" class="ctrl-btn" title="Mute (M)">🔊</button>
+      </div>
+    </header>
+
+    <main id="main">
+      <aside id="tower-panel">
+        <h2>ARSENAL</h2>
+        <div id="tower-buttons"></div>
+        <div class="panel-hint">
+          <p><kbd>1</kbd>–<kbd>9</kbd> <kbd>0</kbd> select · <kbd>Esc</kbd> cancel</p>
+          <p><kbd>Space</kbd> wave / pause · <kbd>S</kbd> speed · <kbd>R</kbd> ranges</p>
+        </div>
+      </aside>
+
+      <div id="canvas-wrap">
+        <canvas id="game-canvas"></canvas>
+        <div id="overlay" class="hidden">
+          <div id="overlay-content"></div>
+        </div>
+        <div id="tooltip" class="hidden"></div>
+      </div>
+
+      <aside id="info-panel">
+        <h2>INTEL</h2>
+        <div id="info-content">
+          <p class="muted">Select a tower on the map or from the arsenal to view details.</p>
+        </div>
+        <div id="wave-info">
+          <h3>NEXT WAVE</h3>
+          <div id="wave-composition" class="muted">Press Start Wave to begin.</div>
+          <button id="btn-start-wave" class="primary-btn">START WAVE</button>
+        </div>
+      </aside>
+    </main>
+
+    <footer id="status-bar">
+      <span id="status-text">Place towers along the path. Defend the base at all costs.</span>
+      <span id="high-score">Best Wave: —</span>
+    </footer>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
