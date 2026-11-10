@@ -61,6 +61,15 @@ const CONFIG = {
   roverPathOffset: 42, // distance off-lane for roving platforms
 };
 
+// Pulse Turret pixel sprite (assets/pulse-turret.png). Native 16×16.
+// The barrel sits on the right edge of the image (+X). Canvas aim angle 0 is
+// also +X, and the old procedural barrel was drawn toward +X, so aiming uses
+// tower.angle with no extra rotation. Change the offset (radians) if the art
+// faces a different direction.
+const PULSE_SPRITE_SRC = "assets/pulse-turret.png";
+const PULSE_SPRITE_AIM_OFFSET = 0;
+const PULSE_SPRITE_DRAW_SIZE = 32; // 16×16 ×2, nearest-neighbor
+
 const STATE = {
   MENU: "menu",
   PLAYING: "playing",
@@ -1358,6 +1367,14 @@ class Game {
     this.highWave = parseInt(localStorage.getItem("fmtd_highWave") || "0", 10);
     this.highScore = parseInt(localStorage.getItem("fmtd_highScore") || "0", 10);
     this.tutorialSeen = localStorage.getItem("fmtd_tutorial_v2") === "1";
+
+    this._pulseSprite = new Image();
+    this._pulseSpriteFailed = false;
+    this._pulseSpriteCanvas = null;
+    this._pulseSprite.addEventListener("error", () => {
+      this._pulseSpriteFailed = true;
+    });
+    this._pulseSprite.src = PULSE_SPRITE_SRC;
 
     this._bindUI();
     this._resize();
@@ -3236,10 +3253,52 @@ class Game {
     this.canvas.style.cursor = valid ? "cell" : "not-allowed";
   }
 
+  /**
+   * Upscaled Pulse Turret bitmap, or null while loading / if the file failed.
+   * Callers fall back to the procedural turret when this returns null.
+   */
+  _pulseSpriteFrame() {
+    if (this._pulseSpriteFailed) return null;
+    if (this._pulseSpriteCanvas) return this._pulseSpriteCanvas;
+    const img = this._pulseSprite;
+    if (!img || !img.complete || img.naturalWidth === 0) return null;
+    const size = PULSE_SPRITE_DRAW_SIZE;
+    const c = document.createElement("canvas");
+    c.width = size;
+    c.height = size;
+    const g = c.getContext("2d");
+    g.imageSmoothingEnabled = false;
+    g.drawImage(img, 0, 0, size, size);
+    this._pulseSpriteCanvas = c;
+    return c;
+  }
+
+  _drawPulseSprite(ctx, t, frame) {
+    if (t === this.selectedTower) {
+      ctx.strokeStyle = "#d4a84b";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.rotate((t.angle || 0) + PULSE_SPRITE_AIM_OFFSET);
+    ctx.imageSmoothingEnabled = false;
+    const s = PULSE_SPRITE_DRAW_SIZE;
+    ctx.drawImage(frame, -s / 2, -s / 2, s, s);
+  }
+
   _drawTower(ctx, t) {
     const def = TOWER_TYPES[t.type];
+    const pulseFrame = t.type === "pulse" ? this._pulseSpriteFrame() : null;
     ctx.save();
     ctx.translate(t.x, t.y);
+
+    if (pulseFrame) {
+      this._drawPulseSprite(ctx, t, pulseFrame);
+      ctx.restore();
+      this._drawUpgradePips(ctx, t);
+      return;
+    }
 
     // Base
     ctx.fillStyle = "#0e1820";
@@ -3349,7 +3408,10 @@ class Game {
     }
 
     ctx.restore();
+    this._drawUpgradePips(ctx, t);
+  }
 
+  _drawUpgradePips(ctx, t) {
     const total = t.pathLevel.A + t.pathLevel.B + t.pathLevel.C;
     if (total > 0) {
       ctx.fillStyle = "#d4a84b";

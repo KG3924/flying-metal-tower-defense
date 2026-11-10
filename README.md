@@ -60,6 +60,10 @@ Repo: https://github.com/KG3924/flying-metal-tower-defense
 
 Settings → Pages → Deploy from branch **`main`** / root (`/`).
 
+## Art
+
+Pulse Turret in-world art is a 16×16 sprite from the [Angais Pixel Art Atlas 1.4M](https://huggingface.co/datasets/Angais/pixel-art-atlas-1.4m). Every other tower is still drawn with canvas paths. Row ids, captions, and the CC0 / Krea terms note are in [assets/README.md](assets/README.md).
+
 ## License
 
 MIT
